@@ -1,28 +1,36 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const db = require('../db');
 const { verifyToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Validation middleware for leave application
+const leaveValidation = [
+  body('from_date').isDate().withMessage('Valid from_date is required (YYYY-MM-DD)'),
+  body('to_date').isDate().withMessage('Valid to_date is required (YYYY-MM-DD)'),
+  body('to_date').custom((to_date, { req }) => {
+    if (new Date(req.body.from_date) > new Date(to_date)) {
+      throw new Error('from_date cannot be after to_date');
+    }
+    return true;
+  })
+];
+
 // POST /api/leaves - Apply for leave (Protected)
-router.post('/', verifyToken, async (req, res) => {
+router.post('/', verifyToken, leaveValidation, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array()
+      });
+    }
+
     const { from_date, to_date, reason } = req.body;
     const user_id = req.user.id; // Get from JWT token
-
-    // Validate input
-    if (!from_date || !to_date) {
-      return res.status(400).json({ 
-        error: 'from_date and to_date are required' 
-      });
-    }
-
-    // Validate dates
-    if (new Date(from_date) > new Date(to_date)) {
-      return res.status(400).json({ 
-        error: 'from_date cannot be after to_date' 
-      });
-    }
 
     // Insert leave application
     const [result] = await db.query(
@@ -46,7 +54,8 @@ router.post('/', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Leave application error:', error);
     res.status(500).json({ 
-      error: 'Failed to submit leave application' 
+      success: false,
+      errors: [{ msg: 'Failed to submit leave application' }]
     });
   }
 });

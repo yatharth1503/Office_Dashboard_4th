@@ -1,23 +1,34 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const db = require('../db');
 const { verifyToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Validation middleware for DAR creation
+const darValidation = [
+  body('date').isDate().withMessage('Valid date is required (YYYY-MM-DD)'),
+  body('activities').isArray({ min: 1 }).withMessage('Activities must be a non-empty array'),
+  body('activities.*.activity_type_id').isInt({ min: 1 }).withMessage('Valid activity_type_id is required'),
+  body('activities.*.minutes').isInt({ min: 1 }).withMessage('Minutes must be a positive integer')
+];
+
 // POST /api/dar - Create DAR header with activities (Protected)
-router.post('/', verifyToken, async (req, res) => {
+router.post('/', verifyToken, darValidation, async (req, res) => {
   const connection = await db.getConnection();
   
   try {
-    const { date, activities } = req.body;
-    const user_id = req.user.id; // Get from JWT token
-
-    // Validate input
-    if (!date || !activities || !Array.isArray(activities) || activities.length === 0) {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.status(400).json({ 
-        error: 'Date and activities array are required' 
+        success: false,
+        errors: errors.array()
       });
     }
+
+    const { date, activities } = req.body;
+    const user_id = req.user.id; // Get from JWT token
 
     // Calculate total minutes
     const total_minutes = activities.reduce((sum, activity) => {
@@ -43,13 +54,6 @@ router.post('/', verifyToken, async (req, res) => {
 
     // Insert activities
     for (const activity of activities) {
-      if (!activity.activity_type_id || !activity.minutes) {
-        await connection.rollback();
-        return res.status(400).json({ 
-          error: 'Each activity must have activity_type_id and minutes' 
-        });
-      }
-
       await connection.query(
         'INSERT INTO dar_activities (dar_id, activity_type_id, message, minutes, remarks) VALUES (?, ?, ?, ?, ?)',
         [
@@ -83,12 +87,14 @@ router.post('/', verifyToken, async (req, res) => {
     
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
       return res.status(400).json({ 
-        error: 'Invalid activity type ID' 
+        success: false,
+        errors: [{ msg: 'Invalid activity type ID' }]
       });
     }
     
     res.status(500).json({ 
-      error: 'Failed to create DAR' 
+      success: false,
+      errors: [{ msg: 'Failed to create DAR' }]
     });
   } finally {
     connection.release();
