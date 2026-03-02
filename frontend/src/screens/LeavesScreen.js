@@ -9,10 +9,21 @@ import {
   Alert,
   Platform,
   SafeAreaView,
+  TouchableOpacity,
 } from 'react-native';
 import { Colors } from '../theme';
 import { Button, Input, Card } from '../components';
 import { leaveService } from '../services';
+import DateTimePicker from '@react-native-community/datetimepicker';
+
+// ── Date Helpers ─────────────────────────────────────────────────────────
+const toDateString = (d) => d.toISOString().split('T')[0];
+
+const getTodayDate = () => toDateString(new Date());
+
+const isFutureOrToday = (dateStr) => dateStr >= getTodayDate();
+
+const dateToObj = (dateStr) => new Date(dateStr + 'T00:00:00');
 
 const LeavesScreen = () => {
   const [leaves, setLeaves] = useState([]);
@@ -21,11 +32,13 @@ const LeavesScreen = () => {
   const [showForm, setShowForm] = useState(false);
 
   // Form state
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(getTodayDate());
+  const [toDate, setToDate] = useState(getTodayDate());
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const [showFromPicker, setShowFromPicker] = useState(false);
+  const [showToPicker, setShowToPicker] = useState(false);
 
   const fetchLeaves = useCallback(async () => {
     try {
@@ -53,21 +66,22 @@ const LeavesScreen = () => {
 
   const validate = () => {
     const newErrors = {};
+    const today = getTodayDate();
 
     if (!fromDate) {
       newErrors.fromDate = 'From date is required';
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
-      newErrors.fromDate = 'Use YYYY-MM-DD format';
+    } else if (!isFutureOrToday(fromDate)) {
+      newErrors.fromDate = 'From date must be today or a future date';
     }
 
     if (!toDate) {
       newErrors.toDate = 'To date is required';
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
-      newErrors.toDate = 'Use YYYY-MM-DD format';
+    } else if (!isFutureOrToday(toDate)) {
+      newErrors.toDate = 'To date must be today or a future date';
     }
 
-    if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
-      newErrors.toDate = 'To date must be after from date';
+    if (fromDate && toDate && fromDate > toDate) {
+      newErrors.toDate = 'To date must be on or after the from date';
     }
 
     setErrors(newErrors);
@@ -89,8 +103,8 @@ const LeavesScreen = () => {
           Alert.alert('Success', alertMsg);
         }
         setShowForm(false);
-        setFromDate('');
-        setToDate('');
+        setFromDate(getTodayDate());
+        setToDate(getTodayDate());
         setReason('');
         fetchLeaves();
       }
@@ -160,21 +174,118 @@ const LeavesScreen = () => {
           <Text style={styles.screenTitle}>Apply for Leave</Text>
 
           <Card>
-            <Input
-              label="From Date (YYYY-MM-DD)"
-              value={fromDate}
-              onChangeText={setFromDate}
-              placeholder="2026-03-01"
-              error={errors.fromDate}
-            />
+            {/* ── From Date ── */}
+            <View style={styles.dpContainer}>
+              <Text style={styles.dpLabel}>From Date</Text>
+              {Platform.OS === 'web' ? (
+                <input
+                  type="date"
+                  value={fromDate}
+                  min={getTodayDate()}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFromDate(val);
+                    // auto-bump toDate if it's before the new fromDate
+                    if (toDate < val) setToDate(val);
+                  }}
+                  style={{
+                    border: `1px solid ${errors.fromDate ? Colors.error : Colors.border}`,
+                    borderRadius: 12,
+                    padding: '0 12px',
+                    lineHeight: '44px',
+                    fontSize: 16,
+                    color: Colors.black,
+                    backgroundColor: Colors.white,
+                    outline: 'none',
+                    width: '100%',
+                    height: 44,
+                    boxSizing: 'border-box',
+                    cursor: 'pointer',
+                  }}
+                />
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[styles.dpButton, errors.fromDate && styles.dpButtonError]}
+                    onPress={() => setShowFromPicker(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.dpButtonText}>{fromDate}</Text>
+                    <Text style={styles.dpChevron}>▼</Text>
+                  </TouchableOpacity>
+                  {showFromPicker && (
+                    <DateTimePicker
+                      value={dateToObj(fromDate)}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      minimumDate={dateToObj(getTodayDate())}
+                      onChange={(event, selected) => {
+                        setShowFromPicker(Platform.OS === 'ios');
+                        if (selected) {
+                          const s = toDateString(selected);
+                          setFromDate(s);
+                          if (toDate < s) setToDate(s);
+                        }
+                        if (Platform.OS !== 'ios') setShowFromPicker(false);
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {errors.fromDate ? <Text style={styles.dpErrorText}>{errors.fromDate}</Text> : null}
+            </View>
 
-            <Input
-              label="To Date (YYYY-MM-DD)"
-              value={toDate}
-              onChangeText={setToDate}
-              placeholder="2026-03-05"
-              error={errors.toDate}
-            />
+            {/* ── To Date ── */}
+            <View style={styles.dpContainer}>
+              <Text style={styles.dpLabel}>To Date</Text>
+              {Platform.OS === 'web' ? (
+                <input
+                  type="date"
+                  value={toDate}
+                  min={fromDate || getTodayDate()}
+                  onChange={(e) => setToDate(e.target.value)}
+                  style={{
+                    border: `1px solid ${errors.toDate ? Colors.error : Colors.border}`,
+                    borderRadius: 12,
+                    padding: '0 12px',
+                    lineHeight: '44px',
+                    fontSize: 16,
+                    color: Colors.black,
+                    backgroundColor: Colors.white,
+                    outline: 'none',
+                    width: '100%',
+                    height: 44,
+                    boxSizing: 'border-box',
+                    cursor: 'pointer',
+                  }}
+                />
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[styles.dpButton, errors.toDate && styles.dpButtonError]}
+                    onPress={() => setShowToPicker(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.dpButtonText}>{toDate}</Text>
+                    <Text style={styles.dpChevron}>▼</Text>
+                  </TouchableOpacity>
+                  {showToPicker && (
+                    <DateTimePicker
+                      value={dateToObj(toDate)}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      minimumDate={dateToObj(fromDate || getTodayDate())}
+                      onChange={(event, selected) => {
+                        setShowToPicker(Platform.OS === 'ios');
+                        if (selected) setToDate(toDateString(selected));
+                        if (Platform.OS !== 'ios') setShowToPicker(false);
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {errors.toDate ? <Text style={styles.dpErrorText}>{errors.toDate}</Text> : null}
+            </View>
 
             <Input
               label="Reason (Optional)"
@@ -312,6 +423,44 @@ const styles = StyleSheet.create({
   emptyHint: {
     fontSize: 14,
     color: Colors.gray,
+    marginTop: 4,
+  },
+  // ── Date Picker ────────────────────────────────────────────────────
+  dpContainer: {
+    marginBottom: 16,
+  },
+  dpLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.black,
+    marginBottom: 6,
+  },
+  dpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    minHeight: 44,
+  },
+  dpButtonError: {
+    borderColor: Colors.error,
+  },
+  dpButtonText: {
+    fontSize: 16,
+    color: Colors.black,
+  },
+  dpChevron: {
+    fontSize: 12,
+    color: Colors.gray,
+  },
+  dpErrorText: {
+    fontSize: 12,
+    color: Colors.error,
     marginTop: 4,
   },
 });

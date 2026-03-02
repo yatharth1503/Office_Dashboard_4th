@@ -6,13 +6,16 @@ import {
   ScrollView,
   StatusBar,
   SafeAreaView,
+  TouchableOpacity,
 } from 'react-native';
 import { Colors } from '../theme';
 import { Button, Card } from '../components';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context';
 
 const DashboardScreen = () => {
   const { user, logout } = useAuth();
+  const navigation = useNavigation();
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -79,16 +82,21 @@ const DashboardScreen = () => {
         {/* Quick Stats */}
         <Text style={styles.sectionTitle}>Quick Overview</Text>
         <View style={styles.statsRow}>
-          <Card style={styles.statCard}>
-            <Text style={styles.statNumber}>📋</Text>
-            <Text style={styles.statLabel}>DAR Reports</Text>
-            <Text style={styles.statHint}>Submit daily activity</Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={styles.statNumber}>🗓️</Text>
-            <Text style={styles.statLabel}>Leaves</Text>
-            <Text style={styles.statHint}>Manage applications</Text>
-          </Card>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('DAR')}>
+            <Card style={styles.statCard}>
+              <Text style={styles.statNumber}>📋</Text>
+              <Text style={styles.statLabel}>DAR Reports</Text>
+              <Text style={styles.statHint}>Submit daily activity</Text>
+            </Card>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('Leaves')}>
+            <Card style={styles.statCard}>
+              <Text style={styles.statNumber}>🗓️</Text>
+              <Text style={styles.statLabel}>Leaves</Text>
+              <Text style={styles.statHint}>Manage applications</Text>
+            </Card>
+          </TouchableOpacity>
         </View>
 
         {/* Logout Button */}
