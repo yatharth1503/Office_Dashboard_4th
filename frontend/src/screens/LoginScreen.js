@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import { Colors } from '../theme';
 import { Button, Input } from '../components';
@@ -75,10 +76,14 @@ const LoginScreen = () => {
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoContainer}>
-            <Text style={styles.logoText}>YS</Text>
+            <Image
+              source={require('../../assets/Salt.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
-          <Text style={styles.title}>Yatharth Salt</Text>
-          <Text style={styles.subtitle}>Office Dashboard</Text>
+          <Text style={styles.title}>Salt Pixels</Text>
+          <Text style={styles.subtitle}>Sign in to your account</Text>
         </View>
 
         {/* Form */}
@@ -146,7 +151,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 20,
-    backgroundColor: Colors.primary,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -155,6 +160,11 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
     color: Colors.white,
+  },
+  logoImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
   },
   title: {
     fontSize: 28,
