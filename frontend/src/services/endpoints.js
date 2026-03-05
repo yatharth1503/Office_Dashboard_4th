@@ -51,4 +51,23 @@ export const leaveService = {
     const response = await api.get('/api/leaves', { params });
     return response.data;
   },
+
+  // Admin: get latest 10 leaves across all employees, or filter by user_id
+  getAllLeaves: async (user_id) => {
+    const params = user_id ? { user_id } : {};
+    const response = await api.get('/api/leaves/all', { params });
+    return response.data;
+  },
+
+  // Admin: get all employees for dropdown
+  getEmployees: async () => {
+    const response = await api.get('/api/leaves/employees');
+    return response.data;
+  },
+
+  // Admin: update leave status
+  updateStatus: async (leaveId, status) => {
+    const response = await api.patch(`/api/leaves/${leaveId}/status`, { status });
+    return response.data;
+  },
 };

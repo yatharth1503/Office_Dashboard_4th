@@ -105,6 +105,24 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
+// GET /api/leaves/employees - Get all employees list (Admin only)
+router.get('/employees', verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied. Admin only.' });
+    }
+
+    const [rows] = await db.query(
+      "SELECT id, name, email FROM users WHERE role = 'employee' ORDER BY name ASC"
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Employees fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch employees' });
+  }
+});
+
 // GET /api/leaves/all - Get all leaves (Admin only)
 router.get('/all', verifyToken, async (req, res) => {
   try {
@@ -146,6 +164,11 @@ router.get('/all', verifyToken, async (req, res) => {
     }
 
     query += ' ORDER BY l.created_at DESC';
+
+    // When fetching all employees without a specific user filter, limit to latest 10
+    if (!user_id) {
+      query += ' LIMIT 10';
+    }
 
     const [rows] = await db.query(query, params);
 
