@@ -55,6 +55,12 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  const updateUser = useCallback(async (updatedFields) => {
+    const updated = { ...user, ...updatedFields };
+    await AsyncStorage.setItem('user', JSON.stringify(updated));
+    setUser(updated);
+  }, [user]);
+
   const value = {
     user,
     token,
@@ -62,12 +68,13 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!token,
     login,
     logout,
+    updateUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => {
+export const useAuth = () => { 
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');

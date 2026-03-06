@@ -15,6 +15,16 @@ export const authService = {
     });
     return response.data;
   },
+
+  getProfile: async () => {
+    const response = await api.get('/api/auth/me');
+    return response.data;
+  },
+
+  updateProfile: async (profileData) => {
+    const response = await api.put('/api/auth/profile', profileData);
+    return response.data;
+  },
 };
 
 export const darService = {
@@ -25,6 +35,31 @@ export const darService = {
 
   getMyDars: async (params = {}) => {
     const response = await api.get('/api/dar', { params });
+    return response.data;
+  },
+
+  // Admin: get all employees' DARs, with optional user_id filter
+  getAllDars: async (userId) => {
+    const params = userId ? { user_id: userId } : {};
+    const response = await api.get('/api/dar/all', { params });
+    return response.data;
+  },
+
+  // Admin: get employee list for dropdown
+  getEmployees: async () => {
+    const response = await api.get('/api/dar/employees');
+    return response.data;
+  },
+
+  // Edit a single activity
+  updateActivity: async (activityId, activity) => {
+    const response = await api.put(`/api/dar/activities/${activityId}`, activity);
+    return response.data;
+  },
+
+  // Delete a single activity
+  deleteActivity: async (activityId) => {
+    const response = await api.delete(`/api/dar/activities/${activityId}`);
     return response.data;
   },
 };

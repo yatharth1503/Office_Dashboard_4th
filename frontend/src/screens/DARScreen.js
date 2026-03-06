@@ -17,6 +17,7 @@ import {
 import { Colors } from '../theme';
 import { Button, Input, Card } from '../components';
 import { darService, activityTypeService } from '../services';
+import { useAuth } from '../context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 // ─── Date Helpers ───────────────────────────────────────────────────────────
@@ -35,35 +36,56 @@ const isDateAllowed = (dateStr) => {
   return dateStr === today || dateStr === yesterday;
 };
 
-const DARScreen = () => {
-  const { width } = useWindowDimensions();
-  const isDesktop = width >= 768; // Desktop breakpoint
-  
+const formatDate = (dateStr) =>
+  new Date(dateStr).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+const showAlert = (title, msg) => {
+  if (Platform.OS === 'web') window.alert(msg);
+  else Alert.alert(title, msg);
+};
+
+const confirmAction = (title, msg) =>
+  new Promise((resolve) => {
+    if (Platform.OS === 'web') {
+      resolve(window.confirm(msg));
+    } else {
+      Alert.alert(title, msg, [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'OK', onPress: () => resolve(true) },
+      ]);
+    }
+  });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN VIEW — view-only, pick employee → see their DARs → tap a date
+// ═══════════════════════════════════════════════════════════════════════════
+const AdminDARView = () => {
   const [dars, setDars] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  const [selectedDar, setSelectedDar] = useState(null);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
 
-  // Form state
-  const [date, setDate] = useState(getTodayDate());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [activities, setActivities] = useState([
-    { activity_type_id: '', hours: '0', minutes: '0', message: '', remarks: '' },
-  ]);
-  const [submitting, setSubmitting] = useState(false);
-  const [errors, setErrors] = useState({});
-  const [activityTypes, setActivityTypes] = useState([]);
-  const [pickerOpenIndex, setPickerOpenIndex] = useState(null);
-  const [hoursPickerIndex, setHoursPickerIndex] = useState(null);
-  const [minutesPickerIndex, setMinutesPickerIndex] = useState(null);
+  const fetchEmployees = useCallback(async () => {
+    try {
+      const data = await darService.getEmployees();
+      if (data.success) setEmployees(data.data);
+    } catch (error) {
+      console.error('Failed to fetch employees:', error);
+    }
+  }, []);
 
-  const fetchDars = useCallback(async () => {
+  const fetchDars = useCallback(async (empId) => {
     try {
       setLoading(true);
-      const data = await darService.getMyDars();
-      if (data.success) {
-        setDars(data.data);
-      }
+      const data = await darService.getAllDars(empId || undefined);
+      if (data.success) setDars(data.data);
     } catch (error) {
       console.error('Failed to fetch DARs:', error);
     } finally {
@@ -73,8 +95,239 @@ const DARScreen = () => {
   }, []);
 
   useEffect(() => {
-    fetchDars();
-  }, [fetchDars]);
+    fetchEmployees();
+    fetchDars('');
+  }, [fetchEmployees, fetchDars]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchDars(selectedEmployeeId);
+  };
+
+  const handleEmployeeChange = (empId) => {
+    setSelectedEmployeeId(empId);
+    setSelectedDar(null);
+    fetchDars(empId);
+  };
+
+  // ── Detail view for a selected date ──
+  if (selectedDar) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.listHeader}>
+          <TouchableOpacity onPress={() => setSelectedDar(null)}>
+            <Text style={styles.backBtn}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.screenTitle}>{formatDate(selectedDar.date)}</Text>
+          <View style={{ width: 60 }} />
+        </View>
+
+        <View style={styles.detailMeta}>
+          <Text style={styles.detailMetaText}>Employee: {selectedDar.user_name}</Text>
+          <View style={styles.minutesBadge}>
+            <Text style={styles.minutesText}>{selectedDar.total_minutes} min total</Text>
+          </View>
+        </View>
+
+        <FlatList
+          data={selectedDar.activities || []}
+          keyExtractor={(item, idx) => (item.id || idx).toString()}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item, index }) => (
+            <Card>
+              <View style={styles.activityRow}>
+                <View style={styles.activityDot} />
+                <View style={styles.activityInfo}>
+                  <Text style={styles.activityName}>
+                    {item.activity_type_name || `Activity #${item.activity_type_id}`}
+                  </Text>
+                  <Text style={styles.activityMeta}>
+                    {item.minutes} min{item.message ? ` — ${item.message}` : ''}
+                  </Text>
+                  {item.remarks ? <Text style={styles.remarksText}>Remarks: {item.remarks}</Text> : null}
+                </View>
+              </View>
+            </Card>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No activities recorded</Text>
+            </View>
+          }
+        />
+      </SafeAreaView>
+    );
+  }
+
+  const sectionTitle = selectedEmployeeId
+    ? `${employees.find((e) => e.id.toString() === selectedEmployeeId.toString())?.name || 'Employee'}'s DARs`
+    : 'Latest DARs (All Employees)';
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.listHeader}>
+        <Text style={styles.screenTitle}>DAR Management</Text>
+      </View>
+
+      {/* Employee picker */}
+      <View style={styles.dropdownSection}>
+        <Text style={styles.dropdownLabel}>Filter by Employee</Text>
+        {employees.length === 0 ? (
+          <Text style={{ color: Colors.error, marginTop: 8 }}>No employees found.</Text>
+        ) : Platform.OS === 'web' ? (
+          <select
+            value={selectedEmployeeId}
+            onChange={(e) => handleEmployeeChange(e.target.value)}
+            style={{
+              border: `1px solid ${Colors.border}`,
+              borderRadius: 12,
+              padding: '8px 14px',
+              fontSize: 15,
+              color: Colors.black,
+              backgroundColor: Colors.white,
+              width: '100%',
+              cursor: 'pointer',
+              outline: 'none',
+              marginTop: 4,
+            }}
+          >
+            <option value="">All Employees</option>
+            {employees.map((emp) => (
+              <option key={emp.id} value={emp.id}>{emp.name}</option>
+            ))}
+          </select>
+        ) : (
+          <TouchableOpacity
+            style={styles.customPickerButton}
+            onPress={() => setShowEmployeeModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.customPickerText}>
+              {selectedEmployeeId
+                ? employees.find((e) => e.id.toString() === selectedEmployeeId.toString())?.name || 'Employee'
+                : 'All Employees'}
+            </Text>
+            <Text style={styles.customPickerChevron}>▼</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <Text style={styles.sectionLabel}>{sectionTitle}</Text>
+
+      <FlatList
+        data={dars}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} tintColor={Colors.primary} />
+        }
+        renderItem={({ item }) => (
+          <TouchableOpacity activeOpacity={0.8} onPress={() => setSelectedDar(item)}>
+            <Card>
+              <View style={styles.darHeader}>
+                <View>
+                  <Text style={styles.darDate}>{formatDate(item.date)}</Text>
+                  {!selectedEmployeeId && <Text style={styles.darEmployee}>{item.user_name}</Text>}
+                </View>
+                <View style={styles.minutesBadge}>
+                  <Text style={styles.minutesText}>{item.total_minutes} min</Text>
+                </View>
+              </View>
+              <Text style={styles.activityCountText}>
+                {item.activities?.length || 0} activit{(item.activities?.length || 0) === 1 ? 'y' : 'ies'} — tap to view
+              </Text>
+            </Card>
+          </TouchableOpacity>
+        )}
+        ListEmptyComponent={
+          !loading ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>📋</Text>
+              <Text style={styles.emptyText}>No DAR entries found</Text>
+            </View>
+          ) : null
+        }
+      />
+
+      {/* Employee picker modal (mobile) */}
+      <Modal visible={showEmployeeModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Employee</Text>
+            <FlatList
+              data={[{ id: '', name: 'All Employees' }, ...employees]}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.modalItem}
+                  onPress={() => { handleEmployeeChange(item.id); setShowEmployeeModal(false); }}
+                >
+                  <Text style={styles.modalItemText}>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+              ItemSeparatorComponent={() => <View style={styles.modalSeparator} />}
+            />
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowEmployeeModal(false)}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EMPLOYEE VIEW — list, detail (with add / edit / delete for today/yesterday)
+// ═══════════════════════════════════════════════════════════════════════════
+const EmployeeDARView = () => {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
+
+  const [dars, setDars] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activityTypes, setActivityTypes] = useState([]);
+
+  // Views: 'list' | 'detail' | 'form' | 'editActivity'
+  const [view, setView] = useState('list');
+  const [selectedDar, setSelectedDar] = useState(null);
+
+  // ── Add-form state (used for both "New DAR" and "Add to existing") ──
+  const [date, setDate] = useState(getTodayDate());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [activities, setActivities] = useState([
+    { activity_type_id: '', hours: '0', minutes: '0', message: '', remarks: '' },
+  ]);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [pickerOpenIndex, setPickerOpenIndex] = useState(null);
+  const [hoursPickerIndex, setHoursPickerIndex] = useState(null);
+  const [minutesPickerIndex, setMinutesPickerIndex] = useState(null);
+
+  // ── Edit-activity state ──
+  const [editItem, setEditItem] = useState(null);
+  const [editForm, setEditForm] = useState({ activity_type_id: '', hours: '0', minutes: '0', message: '', remarks: '' });
+  const [editErrors, setEditErrors] = useState({});
+  const [editPickerOpen, setEditPickerOpen] = useState(false);
+  const [editHoursPickerOpen, setEditHoursPickerOpen] = useState(false);
+  const [editMinutesPickerOpen, setEditMinutesPickerOpen] = useState(false);
+
+  // ── Data fetching ──
+  const fetchDars = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await darService.getMyDars();
+      if (data.success) setDars(data.data);
+    } catch (error) {
+      console.error('Failed to fetch DARs:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchDars(); }, [fetchDars]);
 
   useEffect(() => {
     const fetchTypes = async () => {
@@ -85,13 +338,37 @@ const DARScreen = () => {
         console.error('Failed to fetch activity types:', error);
       }
     };
-
     fetchTypes();
   }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchDars();
+  const onRefresh = () => { setRefreshing(true); fetchDars(); };
+
+  // Refresh selected DAR after mutations
+  const refreshSelectedDar = async () => {
+    const data = await darService.getMyDars();
+    if (data.success) {
+      setDars(data.data);
+      if (selectedDar) {
+        const updated = data.data.find((d) => d.id === selectedDar.id);
+        if (updated) setSelectedDar(updated);
+      }
+    }
+  };
+
+  // ── Add-form helpers ──
+  const resetForm = () => {
+    setDate(getTodayDate());
+    setActivities([{ activity_type_id: '', hours: '0', minutes: '0', message: '', remarks: '' }]);
+    setErrors({});
+  };
+
+  const openNewForm = () => { resetForm(); setView('form'); };
+
+  const openAddToExisting = (dar) => {
+    setDate(toDateString(new Date(dar.date)));
+    setActivities([{ activity_type_id: '', hours: '0', minutes: '0', message: '', remarks: '' }]);
+    setErrors({});
+    setView('form');
   };
 
   const addActivity = () => {
@@ -116,21 +393,13 @@ const DARScreen = () => {
 
   const validate = () => {
     const newErrors = {};
-
-    if (!date) {
-      newErrors.date = 'Date is required';
-    } else if (!isDateAllowed(date)) {
-      newErrors.date = 'Only today or yesterday is allowed';
-    }
+    if (!date) newErrors.date = 'Date is required';
+    else if (!isDateAllowed(date)) newErrors.date = 'Only today or yesterday is allowed';
 
     activities.forEach((activity, index) => {
-      if (!activity.activity_type_id) {
-        newErrors[`activity_${index}_type`] = 'Activity type ID required';
-      }
-      const totalMinutes = (parseInt(activity.hours) || 0) * 60 + (parseInt(activity.minutes) || 0);
-      if (totalMinutes <= 0) {
-        newErrors[`activity_${index}_minutes`] = 'Time must be greater than 0';
-      }
+      if (!activity.activity_type_id) newErrors[`activity_${index}_type`] = 'Activity type required';
+      const totalMin = (parseInt(activity.hours) || 0) * 60 + (parseInt(activity.minutes) || 0);
+      if (totalMin <= 0) newErrors[`activity_${index}_minutes`] = 'Time must be > 0';
     });
 
     setErrors(newErrors);
@@ -139,7 +408,6 @@ const DARScreen = () => {
 
   const handleSubmit = async () => {
     if (!validate()) return;
-
     setSubmitting(true);
     try {
       const formattedActivities = activities.map((a) => {
@@ -151,74 +419,306 @@ const DARScreen = () => {
           remarks: a.remarks || null,
         };
       });
-
       const data = await darService.create(date, formattedActivities);
-
       if (data.success) {
-        const alertMsg = 'DAR submitted successfully!';
-        if (Platform.OS === 'web') {
-          window.alert(alertMsg);
+        showAlert('Success', 'DAR activities added successfully!');
+        resetForm();
+        await fetchDars();
+        // If we were adding to an existing, go back to detail
+        if (selectedDar) {
+          const updated = (await darService.getMyDars()).data?.find(
+            (d) => d.id === selectedDar.id || toDateString(new Date(d.date)) === date
+          );
+          if (updated) { setSelectedDar(updated); setView('detail'); }
+          else setView('list');
         } else {
-          Alert.alert('Success', alertMsg);
+          setView('list');
         }
-        setShowForm(false);
-        setDate(getTodayDate());
-        setActivities([{ activity_type_id: '', hours: '0', minutes: '0', message: '', remarks: '' }]);
-        fetchDars();
       }
     } catch (error) {
       const message =
         error.response?.data?.errors?.[0]?.msg ||
         error.response?.data?.error ||
         'Failed to submit DAR';
-      if (Platform.OS === 'web') {
-        window.alert(message);
-      } else {
-        Alert.alert('Error', message);
-      }
+      showAlert('Error', message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const formatDate = (dateStr) => {
-    return new Date(dateStr).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
+  // ── Edit activity ──
+  const openEdit = (activity) => {
+    const hrs = Math.floor(activity.minutes / 60).toString();
+    const mins = (activity.minutes % 60).toString();
+    setEditItem(activity);
+    setEditForm({
+      activity_type_id: activity.activity_type_id.toString(),
+      hours: hrs,
+      minutes: mins,
+      message: activity.message || '',
+      remarks: activity.remarks || '',
     });
+    setEditErrors({});
+    setView('editActivity');
   };
 
-  const renderDarItem = ({ item }) => (
-    <Card>
-      <View style={styles.darHeader}>
-        <Text style={styles.darDate}>{formatDate(item.date)}</Text>
-        <View style={styles.minutesBadge}>
-          <Text style={styles.minutesText}>{item.total_minutes} min</Text>
-        </View>
-      </View>
-      {item.activities?.map((activity, index) => (
-        <View key={activity.id || index} style={styles.activityRow}>
-          <View style={styles.activityDot} />
-          <View style={styles.activityInfo}>
-            <Text style={styles.activityName}>
-              {activity.activity_type_name || `Activity #${activity.activity_type_id}`}
-            </Text>
-            <Text style={styles.activityMeta}>
-              {activity.minutes} min
-              {activity.message ? ` — ${activity.message}` : ''}
-            </Text>
-          </View>
-        </View>
-      ))}
-    </Card>
-  );
+  const validateEdit = () => {
+    const errs = {};
+    if (!editForm.activity_type_id) errs.type = 'Activity type required';
+    const totalMin = (parseInt(editForm.hours) || 0) * 60 + (parseInt(editForm.minutes) || 0);
+    if (totalMin <= 0) errs.minutes = 'Time must be > 0';
+    setEditErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
-  if (showForm) {
+  const handleEditSubmit = async () => {
+    if (!validateEdit()) return;
+    setSubmitting(true);
+    try {
+      const totalMinutes = (parseInt(editForm.hours) || 0) * 60 + (parseInt(editForm.minutes) || 0);
+      const data = await darService.updateActivity(editItem.id, {
+        activity_type_id: parseInt(editForm.activity_type_id),
+        minutes: totalMinutes,
+        message: editForm.message || null,
+        remarks: editForm.remarks || null,
+      });
+      if (data.success) {
+        showAlert('Success', 'Activity updated!');
+        await refreshSelectedDar();
+        setView('detail');
+      }
+    } catch (error) {
+      showAlert('Error', error.response?.data?.error || 'Failed to update activity');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── Delete activity ──
+  const handleDelete = async (activityId) => {
+    const ok = await confirmAction('Delete', 'Are you sure you want to delete this activity?');
+    if (!ok) return;
+    try {
+      const data = await darService.deleteActivity(activityId);
+      if (data.success) {
+        showAlert('Success', 'Activity deleted!');
+        await refreshSelectedDar();
+      }
+    } catch (error) {
+      showAlert('Error', error.response?.data?.error || 'Failed to delete activity');
+    }
+  };
+
+  // ── Activity type name helper ──
+  const getTypeName = (id) => {
+    const t = activityTypes.find((x) => x.id.toString() === id.toString());
+    return t ? t.name : `Activity #${id}`;
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // RENDER — EDIT ACTIVITY
+  // ══════════════════════════════════════════════════════════════════════
+  if (view === 'editActivity' && editItem) {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.formContent}>
-          <Text style={styles.screenTitle}>Create DAR</Text>
+          <Text style={styles.screenTitle}>Edit Activity</Text>
+          <Card>
+            {/* Activity type */}
+            {activityTypes.length > 0 ? (
+              Platform.OS === 'web' ? (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={styles.label}>Activity Type</Text>
+                  <select
+                    value={editForm.activity_type_id || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, activity_type_id: e.target.value }))}
+                    style={styles.select}
+                  >
+                    <option value="">Select</option>
+                    {activityTypes.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                  {editErrors.type && <Text style={styles.tableErrorText}>{editErrors.type}</Text>}
+                </View>
+              ) : (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={styles.label}>Activity Type</Text>
+                  <TouchableOpacity style={styles.mobileSelect} onPress={() => setEditPickerOpen(true)} activeOpacity={0.8}>
+                    <Text style={editForm.activity_type_id ? styles.mobileSelectText : styles.mobileSelectPlaceholder}>
+                      {editForm.activity_type_id ? getTypeName(editForm.activity_type_id) : 'Select activity type'}
+                    </Text>
+                  </TouchableOpacity>
+                  {editErrors.type && <Text style={styles.tableErrorText}>{editErrors.type}</Text>}
+                  <Modal visible={editPickerOpen} transparent animationType="fade" onRequestClose={() => setEditPickerOpen(false)}>
+                    <View style={styles.modalOverlay}>
+                      <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Select Activity Type</Text>
+                        <FlatList
+                          data={activityTypes}
+                          keyExtractor={(item) => item.id.toString()}
+                          renderItem={({ item }) => (
+                            <TouchableOpacity style={styles.modalItem} onPress={() => { setEditForm((f) => ({ ...f, activity_type_id: item.id.toString() })); setEditPickerOpen(false); }}>
+                              <Text style={styles.modalItemText}>{item.name}</Text>
+                            </TouchableOpacity>
+                          )}
+                          ItemSeparatorComponent={() => <View style={styles.modalSeparator} />}
+                        />
+                        <TouchableOpacity style={styles.modalCancel} onPress={() => setEditPickerOpen(false)}>
+                          <Text style={styles.modalCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </Modal>
+                </View>
+              )
+            ) : (
+              <Input
+                label="Activity Type ID"
+                value={editForm.activity_type_id}
+                onChangeText={(v) => setEditForm((f) => ({ ...f, activity_type_id: v }))}
+                keyboardType="numeric"
+                error={editErrors.type}
+              />
+            )}
+
+            {/* Hours */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.label}>Hours</Text>
+              {Platform.OS === 'web' ? (
+                <select value={editForm.hours} onChange={(e) => setEditForm((f) => ({ ...f, hours: e.target.value }))} style={styles.select}>
+                  {[...Array(13)].map((_, i) => <option key={i} value={i}>{i}</option>)}
+                </select>
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.mobileSelect} onPress={() => setEditHoursPickerOpen(true)} activeOpacity={0.8}>
+                    <Text style={styles.mobileSelectText}>{editForm.hours || '0'} hr</Text>
+                  </TouchableOpacity>
+                  <Modal visible={editHoursPickerOpen} transparent animationType="fade" onRequestClose={() => setEditHoursPickerOpen(false)}>
+                    <View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Select Hours</Text>
+                      <FlatList data={[...Array(13)].map((_, i) => i)} keyExtractor={(i) => i.toString()} renderItem={({ item: h }) => (
+                        <TouchableOpacity style={styles.modalItem} onPress={() => { setEditForm((f) => ({ ...f, hours: h.toString() })); setEditHoursPickerOpen(false); }}>
+                          <Text style={styles.modalItemText}>{h} hour{h !== 1 ? 's' : ''}</Text>
+                        </TouchableOpacity>
+                      )} ItemSeparatorComponent={() => <View style={styles.modalSeparator} />} />
+                      <TouchableOpacity style={styles.modalCancel} onPress={() => setEditHoursPickerOpen(false)}><Text style={styles.modalCancelText}>Cancel</Text></TouchableOpacity>
+                    </View></View>
+                  </Modal>
+                </>
+              )}
+            </View>
+
+            {/* Minutes */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.label}>Minutes</Text>
+              {Platform.OS === 'web' ? (
+                <select value={editForm.minutes} onChange={(e) => setEditForm((f) => ({ ...f, minutes: e.target.value }))} style={styles.select}>
+                  <option value="0">0</option><option value="15">15</option><option value="30">30</option><option value="45">45</option>
+                </select>
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.mobileSelect} onPress={() => setEditMinutesPickerOpen(true)} activeOpacity={0.8}>
+                    <Text style={styles.mobileSelectText}>{editForm.minutes || '0'} min</Text>
+                  </TouchableOpacity>
+                  <Modal visible={editMinutesPickerOpen} transparent animationType="fade" onRequestClose={() => setEditMinutesPickerOpen(false)}>
+                    <View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Select Minutes</Text>
+                      <FlatList data={['0','15','30','45']} keyExtractor={(i) => i} renderItem={({ item: m }) => (
+                        <TouchableOpacity style={styles.modalItem} onPress={() => { setEditForm((f) => ({ ...f, minutes: m })); setEditMinutesPickerOpen(false); }}>
+                          <Text style={styles.modalItemText}>{m} minutes</Text>
+                        </TouchableOpacity>
+                      )} ItemSeparatorComponent={() => <View style={styles.modalSeparator} />} />
+                      <TouchableOpacity style={styles.modalCancel} onPress={() => setEditMinutesPickerOpen(false)}><Text style={styles.modalCancelText}>Cancel</Text></TouchableOpacity>
+                    </View></View>
+                  </Modal>
+                </>
+              )}
+              {editErrors.minutes && <Text style={styles.tableErrorText}>{editErrors.minutes}</Text>}
+            </View>
+
+            <Input label="Message (Optional)" value={editForm.message} onChangeText={(v) => setEditForm((f) => ({ ...f, message: v }))} placeholder="What did you work on?" />
+            <Input label="Remarks (Optional)" value={editForm.remarks} onChangeText={(v) => setEditForm((f) => ({ ...f, remarks: v }))} placeholder="Any additional notes" />
+          </Card>
+
+          <View style={[styles.formActions, isDesktop && styles.formActionsDesktop]}>
+            <Button title="Save Changes" onPress={handleEditSubmit} loading={submitting} compact={isDesktop} style={isDesktop ? styles.submitBtnDesktop : undefined} />
+            <Button title="Cancel" variant="outline" onPress={() => setView('detail')} compact={isDesktop} style={isDesktop ? styles.cancelBtnDesktop : { marginTop: 12 }} />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // RENDER — DAR DETAIL (view activities for a date)
+  // ══════════════════════════════════════════════════════════════════════
+  if (view === 'detail' && selectedDar) {
+    const editable = isDateAllowed(toDateString(new Date(selectedDar.date)));
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.listHeader}>
+          <TouchableOpacity onPress={() => { setSelectedDar(null); setView('list'); }}>
+            <Text style={styles.backBtn}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.screenTitle}>{formatDate(selectedDar.date)}</Text>
+          <View style={{ width: 60 }} />
+        </View>
+
+        <View style={styles.detailMeta}>
+          <View style={styles.minutesBadge}>
+            <Text style={styles.minutesText}>{selectedDar.total_minutes} min total</Text>
+          </View>
+          {editable && (
+            <Button title="+ Add Activity" onPress={() => openAddToExisting(selectedDar)} style={styles.addBtn} />
+          )}
+        </View>
+
+        <FlatList
+          data={selectedDar.activities || []}
+          keyExtractor={(item, idx) => (item.id || idx).toString()}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refreshSelectedDar(); setRefreshing(false); }} colors={[Colors.primary]} tintColor={Colors.primary} />}
+          renderItem={({ item }) => (
+            <Card>
+              <View style={styles.activityRow}>
+                <View style={styles.activityDot} />
+                <View style={styles.activityInfo}>
+                  <Text style={styles.activityName}>{item.activity_type_name || getTypeName(item.activity_type_id)}</Text>
+                  <Text style={styles.activityMeta}>{item.minutes} min{item.message ? ` — ${item.message}` : ''}</Text>
+                  {item.remarks ? <Text style={styles.remarksText}>Remarks: {item.remarks}</Text> : null}
+                </View>
+                {editable && (
+                  <View style={styles.activityActions}>
+                    <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(item)}>
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item.id)}>
+                      <Text style={styles.deleteBtnText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </Card>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No activities recorded</Text>
+              {editable && <Text style={styles.emptyHint}>Tap "+ Add Activity" to add one</Text>}
+            </View>
+          }
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // RENDER — ADD ACTIVITIES FORM
+  // ══════════════════════════════════════════════════════════════════════
+  if (view === 'form') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.formContent}>
+          <Text style={styles.screenTitle}>{selectedDar ? 'Add Activities' : 'Create DAR'}</Text>
 
           <Card>
           {/* ── Date Picker ── */}
@@ -226,7 +726,6 @@ const DARScreen = () => {
             <Text style={styles.dpLabel}>Date</Text>
 
             {Platform.OS === 'web' ? (
-              /* Web: native HTML date input with min/max restricted to yesterday–today */
               <input
                 type="date"
                 value={date}
@@ -247,7 +746,6 @@ const DARScreen = () => {
                 }}
               />
             ) : (
-              /* iOS / Android: button → native DateTimePicker modal */
               <>
                 <TouchableOpacity
                   style={[styles.dpButton, errors.date && styles.dpButtonError]}
@@ -270,7 +768,7 @@ const DARScreen = () => {
                     minimumDate={new Date(getYesterdayDate() + 'T00:00:00')}
                     maximumDate={new Date(getTodayDate()    + 'T00:00:00')}
                     onChange={(event, selected) => {
-                      setShowDatePicker(Platform.OS === 'ios'); // keep open on iOS
+                      setShowDatePicker(Platform.OS === 'ios');
                       if (selected) setDate(toDateString(selected));
                       if (Platform.OS !== 'ios') setShowDatePicker(false);
                     }}
@@ -407,8 +905,6 @@ const DARScreen = () => {
                   </View>
                 </View>
               ))}
-
-              {/* Add button moved to actions column on the last row */}
             </View>
           ) : (
             /* Mobile Stacked Layout */
@@ -645,7 +1141,7 @@ const DARScreen = () => {
           <Button
             title="Cancel"
             variant="outline"
-            onPress={() => setShowForm(false)}
+            onPress={() => { selectedDar ? setView('detail') : setView('list'); }}
             compact={isDesktop}
             style={isDesktop ? styles.cancelBtnDesktop : { marginTop: 12 }}
           />
@@ -655,13 +1151,16 @@ const DARScreen = () => {
   );
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // RENDER — DAR LIST (default employee view)
+  // ══════════════════════════════════════════════════════════════════════
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.listHeader}>
         <Text style={styles.screenTitle}>Daily Activity Reports</Text>
         <Button
           title="+ New DAR"
-          onPress={() => setShowForm(true)}
+          onPress={openNewForm}
           style={styles.newBtn}
         />
       </View>
@@ -669,7 +1168,6 @@ const DARScreen = () => {
       <FlatList
         data={dars}
         keyExtractor={(item) => item.id.toString()}
-        renderItem={renderDarItem}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -679,6 +1177,21 @@ const DARScreen = () => {
             tintColor={Colors.primary}
           />
         }
+        renderItem={({ item }) => (
+          <TouchableOpacity activeOpacity={0.8} onPress={() => { setSelectedDar(item); setView('detail'); }}>
+            <Card>
+              <View style={styles.darHeader}>
+                <Text style={styles.darDate}>{formatDate(item.date)}</Text>
+                <View style={styles.minutesBadge}>
+                  <Text style={styles.minutesText}>{item.total_minutes} min</Text>
+                </View>
+              </View>
+              <Text style={styles.activityCountText}>
+                {item.activities?.length || 0} activit{(item.activities?.length || 0) === 1 ? 'y' : 'ies'} — tap to view
+              </Text>
+            </Card>
+          </TouchableOpacity>
+        )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📋</Text>
@@ -691,6 +1204,18 @@ const DARScreen = () => {
   );
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ROOT — role switch
+// ═══════════════════════════════════════════════════════════════════════════
+const DARScreen = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  return isAdmin ? <AdminDARView /> : <EmployeeDARView />;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -710,26 +1235,48 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.black,
   },
+  backBtn: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
   newBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
     minHeight: 40,
+  },
+  addBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: 36,
   },
   listContent: {
     padding: 20,
     paddingTop: 12,
     paddingBottom: 100,
   },
+  // ── DAR card ──
   darHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   darDate: {
     fontSize: 16,
     fontWeight: '700',
     color: Colors.black,
+  },
+  darEmployee: {
+    fontSize: 13,
+    color: Colors.primary,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  activityCountText: {
+    fontSize: 13,
+    color: Colors.darkGray,
+    marginTop: 4,
   },
   minutesBadge: {
     backgroundColor: '#FFEBEE',
@@ -742,10 +1289,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
+  // ── Detail meta ──
+  detailMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 4,
+  },
+  detailMetaText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.darkGray,
+  },
+  // ── Activity row ──
   activityRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginTop: 8,
   },
   activityDot: {
     width: 8,
@@ -768,6 +1328,80 @@ const styles = StyleSheet.create({
     color: Colors.darkGray,
     marginTop: 2,
   },
+  remarksText: {
+    fontSize: 12,
+    color: Colors.gray,
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  activityActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: 8,
+    paddingTop: 2,
+  },
+  editBtn: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  editBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1565C0',
+  },
+  deleteBtn: {
+    backgroundColor: '#FFEBEE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  deleteBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.error,
+  },
+  // ── Admin dropdown ──
+  dropdownSection: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+  },
+  dropdownLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.black,
+    marginBottom: 4,
+  },
+  sectionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.darkGray,
+    marginHorizontal: 20,
+    marginBottom: 4,
+    marginTop: 4,
+  },
+  customPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    minHeight: 48,
+  },
+  customPickerText: {
+    fontSize: 16,
+    color: Colors.black,
+  },
+  customPickerChevron: {
+    fontSize: 12,
+    color: Colors.primary,
+  },
+  // ── Form ──
   formContent: {
     padding: 20,
     paddingBottom: 100,
@@ -974,14 +1608,6 @@ const styles = StyleSheet.create({
   modalCancelText: {
     color: Colors.primary,
     fontWeight: '600',
-  },
-  picker: {
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 6,
-    color: Colors.black,
-    marginTop: 6,
   },
   label: {
     fontSize: 14,
