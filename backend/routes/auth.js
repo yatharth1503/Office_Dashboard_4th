@@ -173,8 +173,8 @@ router.get('/me', verifyToken, async (req, res) => {
 const profileValidation = [
   body('mobile')
     .optional({ nullable: true, checkFalsy: true })
-    .matches(/^[0-9+\-\s()]{7,15}$/)
-    .withMessage('Invalid mobile number'),
+    .matches(/^[6-9][0-9]{9}$/)
+    .withMessage('Please enter a valid 10-digit Indian mobile number'),
   body('dob')
     .optional({ nullable: true, checkFalsy: true })
     .isISO8601()

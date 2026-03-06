@@ -166,8 +166,8 @@ const DashboardScreen = () => {
 
   const validateForm = () => {
     const errs = {};
-    if (form.mobile && !/^[0-9+\-\s()]{7,15}$/.test(form.mobile)) {
-      errs.mobile = 'Enter a valid mobile number';
+    if (form.mobile && !/^[6-9][0-9]{9}$/.test(form.mobile)) {
+      errs.mobile = 'Please enter a valid 10-digit Indian mobile number';
     }
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
