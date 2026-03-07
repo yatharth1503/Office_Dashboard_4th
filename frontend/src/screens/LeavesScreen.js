@@ -138,7 +138,7 @@ const AdminLeavesView = () => {
 
         <View style={styles.leaveHeader}>
           <Text style={styles.leaveDate}>
-            {formatDate(item.from_date)} — {formatDate(item.to_date)}
+            {formatDate(item.leave_date)}
           </Text>
           <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
             <Text style={[styles.statusText, { color: statusColor.text }]}>
@@ -457,11 +457,9 @@ const EmployeeLeavesView = () => {
     return (
       <Card>
         <View style={styles.leaveHeader}>
-          <View>
-            <Text style={styles.leaveDate}>
-              {formatDate(item.from_date)} — {formatDate(item.to_date)}
-            </Text>
-          </View>
+          <Text style={styles.leaveDate}>
+            {formatDate(item.leave_date)}
+          </Text>
           <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
             <Text style={[styles.statusText, { color: statusColor.text }]}>
               {item.status.charAt(0).toUpperCase() + item.status.slice(1)}

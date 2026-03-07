@@ -30,24 +30,42 @@ router.post('/', verifyToken, leaveValidation, async (req, res) => {
     }
 
     const { from_date, to_date, reason } = req.body;
-    const user_id = req.user.id; // Get from JWT token
+    const user_id = req.user.id;
 
-    // Insert leave application
-    const [result] = await db.query(
-      'INSERT INTO leaves (user_id, from_date, to_date, reason, status) VALUES (?, ?, ?, ?, ?)',
-      [user_id, from_date, to_date, reason || null, 'pending']
-    );
+    // Build list of individual leave days (to_date is the return day, so excluded)
+    const start = new Date(from_date);
+    const end   = new Date(to_date);
+    const days  = [];
+    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+      days.push(d.toISOString().split('T')[0]);
+    }
+
+    if (days.length === 0) {
+      return res.status(400).json({
+        success: false,
+        errors: [{ msg: 'from_date must be before to_date' }]
+      });
+    }
+
+    // Insert one row per day; IGNORE silently skips already-existing dates
+    let inserted = 0;
+    for (const date of days) {
+      const [result] = await db.query(
+        'INSERT IGNORE INTO leaves (user_id, leave_date, reason, status) VALUES (?, ?, ?, ?)',
+        [user_id, date, reason || null, 'pending']
+      );
+      inserted += result.affectedRows;
+    }
 
     res.status(201).json({
       success: true,
-      message: 'Leave application submitted successfully',
+      message: `Leave submitted for ${inserted} day(s). ${days.length - inserted} day(s) already existed and were skipped.`,
       data: {
-        id: result.insertId,
         user_id,
         from_date,
         to_date,
-        reason,
-        status: 'pending'
+        days_requested: days,
+        days_inserted: inserted
       }
     });
 
@@ -69,8 +87,7 @@ router.get('/', verifyToken, async (req, res) => {
     let query = `
       SELECT 
         l.id,
-        l.from_date,
-        l.to_date,
+        l.leave_date,
         l.reason,
         l.status,
         l.created_at,
@@ -88,7 +105,7 @@ router.get('/', verifyToken, async (req, res) => {
       params.push(status);
     }
 
-    query += ' ORDER BY l.created_at DESC';
+    query += ' ORDER BY l.leave_date DESC';
 
     const [rows] = await db.query(query, params);
 
@@ -139,8 +156,7 @@ router.get('/all', verifyToken, async (req, res) => {
       SELECT 
         l.id,
         l.user_id,
-        l.from_date,
-        l.to_date,
+        l.leave_date,
         l.reason,
         l.status,
         l.created_at,
@@ -163,11 +179,11 @@ router.get('/all', verifyToken, async (req, res) => {
       params.push(user_id);
     }
 
-    query += ' ORDER BY l.created_at DESC';
+    query += ' ORDER BY l.leave_date DESC';
 
-    // When fetching all employees without a specific user filter, limit to latest 10
+    // When fetching all employees without a specific user filter, limit to latest 50 days
     if (!user_id) {
-      query += ' LIMIT 10';
+      query += ' LIMIT 50';
     }
 
     const [rows] = await db.query(query, params);
