@@ -522,16 +522,15 @@ const EmployeeLeavesView = () => {
                     <DateTimePicker
                       value={dateToObj(fromDate)}
                       mode="date"
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      display="default"
                       minimumDate={dateToObj(getTodayDate())}
                       onChange={(event, selected) => {
-                        setShowFromPicker(Platform.OS === 'ios');
-                        if (selected) {
+                        setShowFromPicker(false);
+                        if (selected && event.type !== 'dismissed') {
                           const s = toDateString(selected);
                           setFromDate(s);
                           if (toDate < s) setToDate(s);
                         }
-                        if (Platform.OS !== 'ios') setShowFromPicker(false);
                       }}
                     />
                   )}
@@ -578,12 +577,11 @@ const EmployeeLeavesView = () => {
                     <DateTimePicker
                       value={dateToObj(toDate)}
                       mode="date"
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      display="default"
                       minimumDate={dateToObj(fromDate || getTodayDate())}
                       onChange={(event, selected) => {
-                        setShowToPicker(Platform.OS === 'ios');
-                        if (selected) setToDate(toDateString(selected));
-                        if (Platform.OS !== 'ios') setShowToPicker(false);
+                        setShowToPicker(false);
+                        if (selected && event.type !== 'dismissed') setToDate(toDateString(selected));
                       }}
                     />
                   )}
@@ -798,15 +796,16 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: Colors.white,
-    borderRadius: 14,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 20,
-    width: '80%',
+    paddingBottom: 32,
     maxHeight: '60%',
+    width: '100%',
   },
   modalTitle: {
     fontSize: 18,

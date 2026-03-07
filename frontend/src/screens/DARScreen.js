@@ -764,13 +764,12 @@ const EmployeeDARView = () => {
                   <DateTimePicker
                     value={new Date(date + 'T00:00:00')}
                     mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    display="default"
                     minimumDate={new Date(getYesterdayDate() + 'T00:00:00')}
                     maximumDate={new Date(getTodayDate()    + 'T00:00:00')}
                     onChange={(event, selected) => {
-                      setShowDatePicker(Platform.OS === 'ios');
-                      if (selected) setDate(toDateString(selected));
-                      if (Platform.OS !== 'ios') setShowDatePicker(false);
+                      setShowDatePicker(false);
+                      if (selected && event.type !== 'dismissed') setDate(toDateString(selected));
                     }}
                   />
                 )}
@@ -1575,14 +1574,15 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    padding: 20,
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: Colors.white,
-    borderRadius: 12,
-    maxHeight: '70%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '60%',
     overflow: 'hidden',
+    paddingBottom: 24,
   },
   modalTitle: {
     fontSize: 16,

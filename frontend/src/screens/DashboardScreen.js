@@ -354,12 +354,11 @@ const DashboardScreen = () => {
                       <DateTimePicker
                         value={dateToObj(form.dob)}
                         mode="date"
-                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        display="default"
                         maximumDate={new Date()}
                         onChange={(event, selected) => {
-                          if (Platform.OS !== 'ios') setShowDobPicker(false);
-                          if (selected) setForm((f) => ({ ...f, dob: toLocalDateString(selected) }));
-                          if (Platform.OS === 'ios' && event.type === 'dismissed') setShowDobPicker(false);
+                          setShowDobPicker(false);
+                          if (selected && event.type !== 'dismissed') setForm((f) => ({ ...f, dob: toLocalDateString(selected) }));
                         }}
                       />
                     )}
