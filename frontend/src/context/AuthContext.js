@@ -34,10 +34,25 @@ export const AuthProvider = ({ children }) => {
     const data = await authService.login(email, password);
 
     if (data.success) {
+      // Store token first so the /me request can attach it via the interceptor
       await AsyncStorage.setItem('token', data.token);
-      await AsyncStorage.setItem('user', JSON.stringify(data.user));
       setToken(data.token);
-      setUser(data.user);
+
+      // Fetch the full profile from the DB so we always get the complete
+      // profile_photo (not a potentially stale/truncated copy from the login
+      // response cache or a too-small DB column before migration).
+      let userToStore = data.user;
+      try {
+        const profileData = await authService.getProfile();
+        if (profileData.success) {
+          userToStore = { ...data.user, ...profileData.data };
+        }
+      } catch {
+        // If /me fails (network hiccup), fall back to login-response user info
+      }
+
+      await AsyncStorage.setItem('user', JSON.stringify(userToStore));
+      setUser(userToStore);
     }
 
     return data;

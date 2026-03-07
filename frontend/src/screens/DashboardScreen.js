@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
@@ -19,6 +20,14 @@ import { Button, Card, Input } from '../components';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context';
 import { authService } from '../services';
+
+// ── Image validation — guard against truncated/invalid data URLs ────────────
+const isValidPhoto = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('http://') || url.startsWith('https://')) return true;
+  // data URL must start correctly and have a non-empty data section
+  return url.startsWith('data:image/') && url.includes(';base64,') && url.length > 50;
+};
 
 // ── Date helpers using LOCAL date parts (avoids UTC-offset shift) ────────────
 const toLocalDateString = (d) => {
@@ -59,6 +68,7 @@ const DashboardScreen = () => {
   const [saving, setSaving] = useState(false);
   const [photoSaving, setPhotoSaving] = useState(false);
   const [showDobPicker, setShowDobPicker] = useState(false);
+  const [showFullImageModal, setShowFullImageModal] = useState(false);
   const [form, setForm] = useState({ profile_photo: '', dob: '', address: '', mobile: '' });
   const [formErrors, setFormErrors] = useState({});
 
@@ -92,11 +102,17 @@ const DashboardScreen = () => {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.5,
+      quality: 0.3,
       base64: true,
     });
     if (result.canceled || !result.assets?.[0]?.base64) return null;
-    return `data:image/jpeg;base64,${result.assets[0].base64}`;
+    const dataUrl = `data:image/jpeg;base64,${result.assets[0].base64}`;
+    // Guard: reject images whose base64 exceeds ~1 MB to avoid DB truncation
+    if (dataUrl.length > 1_400_000) {
+      showAlert('Image too large', 'Please choose a smaller image.');
+      return null;
+    }
+    return dataUrl;
   };
 
   // Immediately persist photo to backend (when changed outside edit mode)
@@ -224,10 +240,16 @@ const DashboardScreen = () => {
             <Text style={styles.userName}>{user?.name || 'User'}</Text>
           </View>
 
-          {/* Tappable avatar — always opens photo picker */}
+          {/* Tappable avatar — view full image if exists, else open picker */}
           <TouchableOpacity
             style={styles.avatarWrapper}
-            onPress={openPhotoPicker}
+            onPress={() => {
+              if (isValidPhoto(currentPhoto)) {
+                setShowFullImageModal(true);
+              } else {
+                openPhotoPicker();
+              }
+            }}
             activeOpacity={0.8}
             disabled={photoSaving}
           >
@@ -235,7 +257,7 @@ const DashboardScreen = () => {
               <View style={styles.avatar}>
                 <ActivityIndicator color={Colors.white} size="small" />
               </View>
-            ) : currentPhoto ? (
+            ) : isValidPhoto(currentPhoto) ? (
               <Image source={{ uri: currentPhoto }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatar}>
@@ -271,7 +293,7 @@ const DashboardScreen = () => {
               {/* Photo preview + change / remove */}
               <View style={styles.photoEditRow}>
                 <TouchableOpacity onPress={openPhotoPicker} activeOpacity={0.8} style={styles.photoPreviewTouch}>
-                  {form.profile_photo ? (
+                  {isValidPhoto(form.profile_photo) ? (
                     <Image source={{ uri: form.profile_photo }} style={styles.photoPreview} resizeMode="cover" />
                   ) : (
                     <View style={[styles.photoPreview, styles.photoPreviewPlaceholder]}>
@@ -419,6 +441,28 @@ const DashboardScreen = () => {
 
         <Button title="Logout" onPress={logout} variant="outline" style={styles.logoutButton} />
       </ScrollView>
+
+      {/* Full Image Modal */}
+      <Modal
+        visible={showFullImageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFullImageModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalClose}
+            onPress={() => setShowFullImageModal(false)}
+          >
+            <Text style={styles.modalCloseText}>✕</Text>
+          </TouchableOpacity>
+          <Image
+            source={{ uri: currentPhoto }}
+            style={styles.fullImage}
+            resizeMode="contain"
+          />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -464,6 +508,33 @@ const styles = StyleSheet.create({
   avatarCamIcon: { fontSize: 11 },
   content: { flex: 1 },
   contentContainer: { padding: 20, paddingBottom: 100 },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  modalCloseText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.black,
+  },
+  fullImage: {
+    width: '90%',
+    height: '70%',
+  },
   cardTitleRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: 16,
