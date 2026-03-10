@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   FlatList,
+  SectionList,
   RefreshControl,
   Alert,
   Platform,
@@ -64,13 +65,11 @@ const confirmAction = (title, msg) =>
 // ADMIN VIEW — view-only, pick employee → see their DARs → tap a date
 // ═══════════════════════════════════════════════════════════════════════════
 const AdminDARView = () => {
-  const [dars, setDars] = useState([]);
+  const [groupedActivities, setGroupedActivities] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedDar, setSelectedDar] = useState(null);
-  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -85,7 +84,41 @@ const AdminDARView = () => {
     try {
       setLoading(true);
       const data = await darService.getAllDars(empId || undefined);
-      if (data.success) setDars(data.data);
+      if (data.success) {
+        // Flatten and group activities by date
+        const allActivities = [];
+        data.data.forEach(dar => {
+          dar.activities.forEach(activity => {
+            allActivities.push({
+              ...activity,
+              date: dar.date,
+              user_name: dar.user_name,
+              dar_id: dar.id,
+            });
+          });
+        });
+
+        // Group by date and then by employee
+        const groups = {};
+        allActivities.forEach(activity => {
+          if (!groups[activity.date]) {
+            groups[activity.date] = {
+              date: activity.date,
+              employees: {},
+              totalMinutes: 0,
+            };
+          }
+          if (!groups[activity.date].employees[activity.user_name]) {
+            groups[activity.date].employees[activity.user_name] = [];
+          }
+          groups[activity.date].employees[activity.user_name].push(activity);
+          groups[activity.date].totalMinutes += activity.minutes;
+        });
+
+        // Convert to array and sort by date descending
+        const groupedArray = Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
+        setGroupedActivities(groupedArray);
+      }
     } catch (error) {
       console.error('Failed to fetch DARs:', error);
     } finally {
@@ -106,58 +139,8 @@ const AdminDARView = () => {
 
   const handleEmployeeChange = (empId) => {
     setSelectedEmployeeId(empId);
-    setSelectedDar(null);
     fetchDars(empId);
   };
-
-  // ── Detail view for a selected date ──
-  if (selectedDar) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.listHeader}>
-          <TouchableOpacity onPress={() => setSelectedDar(null)}>
-            <Text style={styles.backBtn}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.screenTitle}>{formatDate(selectedDar.date)}</Text>
-          <View style={{ width: 60 }} />
-        </View>
-
-        <View style={styles.detailMeta}>
-          <Text style={styles.detailMetaText}>Employee: {selectedDar.user_name}</Text>
-          <View style={styles.minutesBadge}>
-            <Text style={styles.minutesText}>{selectedDar.total_minutes} min total</Text>
-          </View>
-        </View>
-
-        <FlatList
-          data={selectedDar.activities || []}
-          keyExtractor={(item, idx) => (item.id || idx).toString()}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item, index }) => (
-            <Card>
-              <View style={styles.activityRow}>
-                <View style={styles.activityDot} />
-                <View style={styles.activityInfo}>
-                  <Text style={styles.activityName}>
-                    {item.activity_type_name || `Activity #${item.activity_type_id}`}
-                  </Text>
-                  <Text style={styles.activityMeta}>
-                    {item.minutes} min{item.message ? ` — ${item.message}` : ''}
-                  </Text>
-                  {item.remarks ? <Text style={styles.remarksText}>Remarks: {item.remarks}</Text> : null}
-                </View>
-              </View>
-            </Card>
-          )}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No activities recorded</Text>
-            </View>
-          }
-        />
-      </SafeAreaView>
-    );
-  }
 
   const sectionTitle = selectedEmployeeId
     ? `${employees.find((e) => e.id.toString() === selectedEmployeeId.toString())?.name || 'Employee'}'s DARs`
@@ -214,30 +197,45 @@ const AdminDARView = () => {
 
       <Text style={styles.sectionLabel}>{sectionTitle}</Text>
 
-      <FlatList
-        data={dars}
-        keyExtractor={(item) => item.id.toString()}
+      <SectionList
+        sections={groupedActivities.map(group => ({
+          title: formatDate(group.date),
+          data: Object.keys(group.employees).sort().map(name => ({ name, activities: group.employees[name] })),
+          totalMinutes: group.totalMinutes,
+        }))}
+        keyExtractor={(item) => item.name}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} tintColor={Colors.primary} />
         }
+        renderSectionHeader={({ section }) => (
+          <View style={styles.dateHeader}>
+            <Text style={styles.dateHeaderText}>{section.title}</Text>
+            <View style={styles.minutesBadge}>
+              <Text style={styles.minutesText}>{section.totalMinutes} min total</Text>
+            </View>
+          </View>
+        )}
         renderItem={({ item }) => (
-          <TouchableOpacity activeOpacity={0.8} onPress={() => setSelectedDar(item)}>
-            <Card>
-              <View style={styles.darHeader}>
-                <View>
-                  <Text style={styles.darDate}>{formatDate(item.date)}</Text>
-                  {!selectedEmployeeId && <Text style={styles.darEmployee}>{item.user_name}</Text>}
+          <View style={styles.employeeGroup}>
+            <Text style={styles.employeeName}>{item.name}</Text>
+            {item.activities.map(activity => (
+              <Card key={activity.id}>
+                <View style={styles.activityRow}>
+                  <View style={styles.activityDot} />
+                  <View style={styles.activityInfo}>
+                    <Text style={styles.activityName}>
+                      {activity.activity_type_name || `Activity #${activity.activity_type_id}`}
+                    </Text>
+                    <Text style={styles.activityMeta}>
+                      {activity.minutes} min{activity.message ? ` — ${activity.message}` : ''}
+                    </Text>
+                    {activity.remarks ? <Text style={styles.remarksText}>Remarks: {activity.remarks}</Text> : null}
+                  </View>
                 </View>
-                <View style={styles.minutesBadge}>
-                  <Text style={styles.minutesText}>{item.total_minutes} min</Text>
-                </View>
-              </View>
-              <Text style={styles.activityCountText}>
-                {item.activities?.length || 0} activit{(item.activities?.length || 0) === 1 ? 'y' : 'ies'} — tap to view
-              </Text>
-            </Card>
-          </TouchableOpacity>
+              </Card>
+            ))}
+          </View>
         )}
         ListEmptyComponent={
           !loading ? (
@@ -248,31 +246,6 @@ const AdminDARView = () => {
           ) : null
         }
       />
-
-      {/* Employee picker modal (mobile) */}
-      <Modal visible={showEmployeeModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Employee</Text>
-            <FlatList
-              data={[{ id: '', name: 'All Employees' }, ...employees]}
-              keyExtractor={(item) => item.id.toString()}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => { handleEmployeeChange(item.id); setShowEmployeeModal(false); }}
-                >
-                  <Text style={styles.modalItemText}>{item.name}</Text>
-                </TouchableOpacity>
-              )}
-              ItemSeparatorComponent={() => <View style={styles.modalSeparator} />}
-            />
-            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowEmployeeModal(false)}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -1379,6 +1352,47 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 4,
     marginTop: 4,
+  },
+  dateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: Colors.white,
+    borderRadius: 8,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  dateHeaderText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  employeeGroup: {
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: Colors.white,
+    borderRadius: 8,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  employeeName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.primary,
+    marginBottom: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
   },
   customPickerButton: {
     flexDirection: 'row',
