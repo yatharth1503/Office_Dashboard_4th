@@ -204,17 +204,21 @@ const AdminDARView = () => {
           totalMinutes: group.totalMinutes,
         }))}
         keyExtractor={(item) => item.name}
+        stickySectionHeadersEnabled={true}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} tintColor={Colors.primary} />
         }
         renderSectionHeader={({ section }) => (
-          <View style={styles.dateHeader}>
-            <Text style={styles.dateHeaderText}>{section.title}</Text>
-            <View style={styles.minutesBadge}>
-              <Text style={styles.minutesText}>{section.totalMinutes} min total</Text>
+          <>
+            <View style={styles.dateHeader}>
+              <Text style={styles.dateHeaderText}>{section.title}</Text>
+              <View style={styles.minutesBadge}>
+                <Text style={styles.minutesText}>{section.totalMinutes} min total</Text>
+              </View>
             </View>
-          </View>
+            {Platform.OS !== 'web' && <View style={styles.headerSpacer} />}
+          </>
         )}
         renderItem={({ item }) => (
           <View style={styles.employeeGroup}>
@@ -1464,6 +1468,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.black,
+  },
+  headerSpacer: {
+    height: 64,
   },
   emptyHint: {
     fontSize: 14,
