@@ -20,6 +20,20 @@ app.use('/api/activity-types', activityTypesRoutes);
 app.use('/api/dar', darRoutes);
 app.use('/api/leaves', leavesRoutes);
 
+// New API endpoint to list available routes
+app.get('/', (req, res) => {
+  res.json({
+    message: 'API is running successfully 🚀',
+    availableRoutes: {
+      auth: '/api/auth',
+      activityTypes: '/api/activity-types',
+      dar: '/api/dar',
+      leaves: '/api/leaves',
+      health: '/health'
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'Server is running', timestamp: new Date() });
